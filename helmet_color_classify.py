@@ -1,4 +1,4 @@
-"""这个脚本用于对视频中的人员安全帽颜色进行规则化识别：它先使用 YOLO 姿态模型逐帧检测人员和关键点，再根据头部或肩部关键点估计头盔所在区域，对该区域做 HSV 颜色分析，并将白帽映射为“管理人员”、红帽映射为“工作人员”、无法可靠判断的情况映射为“未知”，最后把中文标注直接绘制回输出视频中。"""
+"""这个脚本用于对视频中的人员安全帽颜色进行规则化识别：它先使用 YOLO 姿态模型逐帧检测人员和关键点，再根据头部或肩部关键点估计头盔所在区域，对该区域做 HSV 颜色分析，并将红帽映射为“工作人员”、其余情况统一映射为“管理人员”，最后把中文标注直接绘制回输出视频中。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ RIGHT_SHOULDER = 6
 DISPLAY_LABELS = {
     "manager": "管理人员",
     "worker": "工作人员",
-    "unknown": "未知",
 }
 FONT_CANDIDATES = (
     Path(r"C:\Windows\Fonts\msyh.ttc"),
@@ -201,7 +200,7 @@ def estimate_head_roi(
 
 def classify_helmet_color(roi_bgr: np.ndarray, args: argparse.Namespace) -> tuple[str, str, float, float]:
     if roi_bgr.size == 0:
-        return "unknown", "unknown", 0.0, 0.0
+        return "manager", "non-red", 0.0, 0.0
 
     height, width = roi_bgr.shape[:2]
     top_end = max(1, int(height * 0.75))
@@ -228,9 +227,7 @@ def classify_helmet_color(roi_bgr: np.ndarray, args: argparse.Namespace) -> tupl
 
     if red_ratio >= args.red_ratio_threshold and red_ratio > white_ratio * args.dominance_ratio:
         return "worker", "red", white_ratio, red_ratio
-    if white_ratio >= args.white_ratio_threshold and white_ratio > red_ratio * args.dominance_ratio:
-        return "manager", "white", white_ratio, red_ratio
-    return "unknown", "unknown", white_ratio, red_ratio
+    return "manager", "non-red", white_ratio, red_ratio
 
 
 def make_overlay_label(label: str, white_ratio: float, red_ratio: float, debug_text: bool) -> str:
@@ -250,7 +247,6 @@ def draw_detection_boxes(
     palette = {
         "manager": (255, 255, 255),
         "worker": (0, 0, 255),
-        "unknown": (160, 160, 160),
     }
     draw_color = palette.get(label, (0, 255, 255))
     x1, y1, x2, y2 = [int(round(v)) for v in person_box]
@@ -261,7 +257,7 @@ def draw_detection_boxes(
         hx1, hy1, hx2, hy2 = helmet_box
         cv2.rectangle(frame, (hx1, hy1), (hx2, hy2), (0, 255, 255), 1)
 
-    text_color = (0, 0, 0) if label in {"manager", "unknown"} else (255, 255, 255)
+    text_color = (0, 0, 0) if label == "manager" else (255, 255, 255)
     return x1, text_y, draw_color, text_color
 
 
@@ -324,7 +320,7 @@ def process_video(args: argparse.Namespace) -> Path:
         inference_kwargs["device"] = args.device
 
     frame_index = 0
-    summary = {"manager": 0, "worker": 0, "unknown": 0}
+    summary = {"manager": 0, "worker": 0}
 
     while True:
         ok, frame = cap.read()
@@ -346,8 +342,8 @@ def process_video(args: argparse.Namespace) -> Path:
 
             for person_box, person_kpt_xy, person_kpt_conf in zip(boxes_xyxy, keypoints_xy, keypoints_conf):
                 helmet_box = estimate_head_roi(person_box, person_kpt_xy, person_kpt_conf, frame.shape, args.keypoint_conf)
-                label = "unknown"
-                color_name = "unknown"
+                label = "manager"
+                color_name = "non-red"
                 white_ratio = 0.0
                 red_ratio = 0.0
 
@@ -375,7 +371,7 @@ def process_video(args: argparse.Namespace) -> Path:
     print(f"[done] Output saved to {actual_output_path.resolve()}")
     print(
         "[done] 标签统计:"
-        f" 管理人员={summary['manager']}, 工作人员={summary['worker']}, 未知={summary['unknown']}"
+        f" 管理人员={summary['manager']}, 工作人员={summary['worker']}"
     )
     return actual_output_path.resolve()
 
