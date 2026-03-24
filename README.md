@@ -8,6 +8,27 @@ This workspace contains a Python 3.12 virtual environment with Ultralytics insta
 .\.venv\Scripts\Activate.ps1
 ```
 
+## Project Layout
+
+```text
+helmet_classifier/
+  __main__.py        # python -m helmet_classifier
+  cli.py             # CLI entry
+  config.py          # parameters and argument parsing
+  analysis.py        # pose ROI estimation and HSV color rules
+  render.py          # Chinese overlays and box drawing
+  debug_output.py    # debug CSV, frames, and panel generation
+  pipeline.py        # video processing pipeline
+  paths.py           # output/debug path helpers
+  schemas.py         # shared data structures
+helmet_color_classify.py  # compatibility entry
+run-helmet-classify.ps1   # PowerShell wrapper
+run-person-detect.ps1     # person detection wrapper
+doc/                      # notes and parameter docs
+data/                     # input videos
+outputs/                  # generated videos and debug artifacts
+```
+
 ## Detect persons in a video
 
 ```powershell
@@ -24,9 +45,8 @@ This workspace contains a Python 3.12 virtual environment with Ultralytics insta
 
 This pipeline uses a YOLO pose model to estimate each person's head area and classifies the helmet color with HSV thresholds:
 
-- white helmet -> `manager`
-- red helmet -> `worker`
-- uncertain color -> `unknown`
+- red helmet ratio above threshold -> `工作人员`
+- all other cases -> `管理人员`
 
 ```powershell
 .\run-helmet-classify.ps1 -Source ".\your_video.mp4"
