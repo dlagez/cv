@@ -10,9 +10,17 @@ param(
 
     [double]$WhiteRatioThreshold = 0.18,
 
-    [double]$RedRatioThreshold = 0.06,
+    [double]$RedRatioThreshold = 0.15,
 
     [int]$Imgsz = 960,
+
+    [int]$RedHLowMax = 18,
+
+    [int]$RedHHighMin = 145,
+
+    [int]$RedSMin = 75,
+
+    [int]$RedVMin = 60,
 
     [string]$FontPath = "",
 
@@ -21,6 +29,14 @@ param(
     [switch]$DrawHelmetBox,
 
     [switch]$DebugText,
+
+    [switch]$SaveDebugArtifacts,
+
+    [string]$DebugDir = "",
+
+    [int]$DebugSampleEvery = 60,
+
+    [int]$DebugMaxSamples = 80,
 
     [int]$MaxFrames = 0,
 
@@ -53,6 +69,14 @@ $args = @(
     $WhiteRatioThreshold,
     "--red-ratio-threshold",
     $RedRatioThreshold,
+    "--red-h-low-max",
+    $RedHLowMax,
+    "--red-h-high-min",
+    $RedHHighMin,
+    "--red-s-min",
+    $RedSMin,
+    "--red-v-min",
+    $RedVMin,
     "--imgsz",
     $Imgsz,
     "--font-size",
@@ -73,6 +97,22 @@ if ($DrawHelmetBox) {
 
 if ($DebugText) {
     $args += "--debug-text"
+}
+
+if ($SaveDebugArtifacts) {
+    $args += "--save-debug-artifacts"
+}
+
+if ($DebugDir) {
+    $args += @("--debug-dir", $DebugDir)
+}
+
+if ($DebugSampleEvery -gt 0) {
+    $args += @("--debug-sample-every", $DebugSampleEvery)
+}
+
+if ($DebugMaxSamples -gt 0) {
+    $args += @("--debug-max-samples", $DebugMaxSamples)
 }
 
 if ($MaxFrames -gt 0) {
