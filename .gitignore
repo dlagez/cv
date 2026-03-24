@@ -29,3 +29,4 @@ runs/
 # Local data and downloaded model weights
 data/videos/
 *.pt
+data/
