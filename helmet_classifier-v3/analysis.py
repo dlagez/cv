@@ -40,6 +40,84 @@ def collect_valid_points(
     return keypoints_xy[valid_indices], keypoints_conf[valid_indices]
 
 
+def _clamp_torso_box(
+    box: tuple[float, float, float, float],
+    person_box: np.ndarray,
+    frame_shape: tuple[int, int, int],
+) -> Box:
+    frame_h, frame_w = frame_shape[:2]
+    box_x1, box_y1, box_x2, box_y2 = [float(v) for v in person_box]
+    box_w = max(box_x2 - box_x1, 1.0)
+    box_h = max(box_y2 - box_y1, 1.0)
+    left_limit = box_x1 + box_w * 0.02
+    right_limit = box_x2 - box_w * 0.02
+    top_limit = box_y1 + box_h * 0.05
+    bottom_limit = box_y2 - box_h * 0.06
+    roi_x1 = max(0, int(round(max(box[0], left_limit))))
+    roi_y1 = max(0, int(round(max(box[1], top_limit))))
+    roi_x2 = min(frame_w, int(round(min(box[2], right_limit))))
+    roi_y2 = min(frame_h, int(round(min(box[3], bottom_limit))))
+    return (roi_x1, roi_y1, roi_x2, roi_y2)
+
+
+def _torso_roi_size(box: Box) -> tuple[int, int, int]:
+    width = max(0, box[2] - box[0])
+    height = max(0, box[3] - box[1])
+    return width, height, width * height
+
+
+def _torso_roi_meets_min_constraints(box: Box, config: AppConfig) -> bool:
+    width, height, area = _torso_roi_size(box)
+    return (
+        width >= config.torso_roi_min_width
+        and height >= config.torso_roi_min_height
+        and area >= config.torso_roi_min_area
+    )
+
+
+def _expand_small_torso_roi(
+    box: Box,
+    person_box: np.ndarray,
+    frame_shape: tuple[int, int, int],
+    config: AppConfig,
+) -> Box:
+    box_x1, box_y1, box_x2, box_y2 = [float(v) for v in person_box]
+    box_w = max(box_x2 - box_x1, 1.0)
+    box_h = max(box_y2 - box_y1, 1.0)
+    width, height, _ = _torso_roi_size(box)
+    center_x = (box[0] + box[2]) / 2.0
+    center_y = (box[1] + box[3]) / 2.0
+    target_w = max(float(width), float(config.torso_roi_min_width), box_w * 0.26)
+    target_h = max(float(height), float(config.torso_roi_min_height), box_h * 0.30)
+    expanded = (
+        center_x - target_w * 0.50,
+        center_y - target_h * 0.42,
+        center_x + target_w * 0.50,
+        center_y + target_h * 0.58,
+    )
+    return _clamp_torso_box(expanded, person_box, frame_shape)
+
+
+def _build_fallback_torso_roi(
+    person_box: np.ndarray,
+    frame_shape: tuple[int, int, int],
+    config: AppConfig,
+) -> Box | None:
+    box_x1, box_y1, box_x2, box_y2 = [float(v) for v in person_box]
+    box_w = max(box_x2 - box_x1, 1.0)
+    box_h = max(box_y2 - box_y1, 1.0)
+    fallback = (
+        box_x1 + box_w * config.torso_fallback_x_margin_ratio,
+        box_y1 + box_h * config.torso_fallback_top_ratio,
+        box_x2 - box_w * config.torso_fallback_x_margin_ratio,
+        box_y1 + box_h * config.torso_fallback_bottom_ratio,
+    )
+    clamped = _clamp_torso_box(fallback, person_box, frame_shape)
+    if not _torso_roi_meets_min_constraints(clamped, config):
+        return None
+    return clamped
+
+
 def estimate_head_roi(
     person_box: np.ndarray,
     keypoints_xy: np.ndarray,
@@ -124,6 +202,7 @@ def estimate_torso_roi(
     keypoints_conf: np.ndarray,
     frame_shape: tuple[int, int, int],
     min_conf: float,
+    config: AppConfig,
 ) -> tuple[Box | None, TorsoRoiMeta]:
     frame_h, frame_w = frame_shape[:2]
     box_x1, box_y1, box_x2, box_y2 = [float(v) for v in person_box]
@@ -152,6 +231,15 @@ def estimate_torso_roi(
         hip_span = float(np.linalg.norm(hip_points[0] - hip_points[1]))
 
     if shoulder_points.shape[0] < 2:
+        fallback_box = _build_fallback_torso_roi(person_box, frame_shape, config)
+        if fallback_box is not None:
+            return fallback_box, TorsoRoiMeta(
+                roi_source="torso-person-fallback",
+                shoulder_point_count=int(shoulder_points.shape[0]),
+                hip_point_count=int(hip_points.shape[0]),
+                shoulder_span=shoulder_span,
+                hip_span=hip_span,
+            )
         return None, TorsoRoiMeta(
             roi_source="torso-none",
             shoulder_point_count=int(shoulder_points.shape[0]),
@@ -184,14 +272,38 @@ def estimate_torso_roi(
         roi_y2 = max(box_y1 + box_h * 0.68, roi_y1 + max(28.0, shoulder_span * 1.05, box_h * 0.24))
         roi_y2 = min(roi_y2, box_y1 + box_h * 0.76)
 
-    left_limit = box_x1 + box_w * 0.02
-    right_limit = box_x2 - box_w * 0.02
-    roi_x1 = max(0, int(round(max(center_x - roi_w * 0.50, left_limit))))
-    roi_x2 = min(frame_w, int(round(min(center_x + roi_w * 0.50, right_limit))))
-    roi_y1 = max(0, int(round(max(roi_y1, box_y1 + box_h * 0.05))))
-    roi_y2 = min(frame_h, int(round(min(roi_y2, box_y2 - box_h * 0.06))))
+    torso_box = _clamp_torso_box(
+        (
+            center_x - roi_w * 0.50,
+            roi_y1,
+            center_x + roi_w * 0.50,
+            roi_y2,
+        ),
+        person_box,
+        frame_shape,
+    )
 
-    if roi_x2 - roi_x1 < 16 or roi_y2 - roi_y1 < 18:
+    if not _torso_roi_meets_min_constraints(torso_box, config):
+        expanded_box = _expand_small_torso_roi(torso_box, person_box, frame_shape, config)
+        if _torso_roi_meets_min_constraints(expanded_box, config):
+            return expanded_box, TorsoRoiMeta(
+                roi_source=f"{roi_source}-expanded",
+                shoulder_point_count=int(shoulder_points.shape[0]),
+                hip_point_count=int(hip_points.shape[0]),
+                shoulder_span=shoulder_span,
+                hip_span=hip_span,
+            )
+
+        fallback_box = _build_fallback_torso_roi(person_box, frame_shape, config)
+        if fallback_box is not None:
+            return fallback_box, TorsoRoiMeta(
+                roi_source="torso-person-fallback",
+                shoulder_point_count=int(shoulder_points.shape[0]),
+                hip_point_count=int(hip_points.shape[0]),
+                shoulder_span=shoulder_span,
+                hip_span=hip_span,
+            )
+
         return None, TorsoRoiMeta(
             roi_source="torso-none",
             shoulder_point_count=int(shoulder_points.shape[0]),
@@ -201,7 +313,7 @@ def estimate_torso_roi(
         )
 
     return (
-        (roi_x1, roi_y1, roi_x2, roi_y2),
+        torso_box,
         TorsoRoiMeta(
             roi_source=roi_source,
             shoulder_point_count=int(shoulder_points.shape[0]),
@@ -366,30 +478,36 @@ def classify_vest_color(
     white_mask_core = cv2.morphologyEx(white_mask_core, cv2.MORPH_OPEN, kernel)
 
     area = float(max(1, core.shape[0] * core.shape[1]))
+    non_white_mask_core = cv2.bitwise_not(white_mask_core)
+    yellow_green_mask_core = cv2.bitwise_and(yellow_green_mask_core, non_white_mask_core)
+    red_mask_core = cv2.bitwise_and(red_mask_core, non_white_mask_core)
+    orange_mask_core = cv2.bitwise_and(orange_mask_core, non_white_mask_core)
     yellow_green_pixels = int(np.count_nonzero(yellow_green_mask_core))
     red_pixels = int(np.count_nonzero(red_mask_core))
     orange_pixels = int(np.count_nonzero(orange_mask_core))
     white_pixels = int(np.count_nonzero(white_mask_core))
+    non_white_pixels = max(int(area) - white_pixels, 0)
 
-    yellow_green_ratio = float(yellow_green_pixels / area)
-    red_ratio = float(red_pixels / area)
-    orange_ratio = float(orange_pixels / area)
+    effective_area = float(max(non_white_pixels, 1))
+    yellow_green_ratio = float(yellow_green_pixels / effective_area)
+    red_ratio = float(red_pixels / effective_area)
+    orange_ratio = float(orange_pixels / effective_area)
     white_ratio = float(white_pixels / area)
 
-    candidates: list[tuple[str, float]] = []
-    if yellow_green_ratio >= config.vest_yellow_green_ratio_threshold:
-        candidates.append(("yellow_green_fluorescent", yellow_green_ratio))
-    if red_ratio >= config.vest_red_ratio_threshold:
-        candidates.append(("red", red_ratio))
-    if orange_ratio >= config.vest_orange_ratio_threshold:
-        candidates.append(("orange", orange_ratio))
     if (
-        white_ratio >= config.vest_white_ratio_threshold
-        and white_ratio >= max(yellow_green_ratio, red_ratio, orange_ratio)
+        non_white_pixels < config.vest_non_white_min_pixels
+        or (non_white_pixels / area) < config.vest_non_white_min_ratio
     ):
-        candidates.append(("white", white_ratio))
-
-    vest_color = max(candidates, key=lambda item: item[1])[0] if candidates else "other"
+        vest_color = "unknown"
+    else:
+        candidates: list[tuple[str, float]] = []
+        if yellow_green_ratio >= config.vest_yellow_green_ratio_threshold:
+            candidates.append(("yellow_green_fluorescent", yellow_green_ratio))
+        if red_ratio >= config.vest_red_ratio_threshold:
+            candidates.append(("red", red_ratio))
+        if orange_ratio >= config.vest_orange_ratio_threshold:
+            candidates.append(("orange", orange_ratio))
+        vest_color = max(candidates, key=lambda item: item[1])[0] if candidates else "other"
 
     yellow_green_mask = np.zeros((height, width), dtype=np.uint8)
     red_mask = np.zeros((height, width), dtype=np.uint8)

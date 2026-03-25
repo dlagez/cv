@@ -20,6 +20,8 @@ class AppConfig:
     vest_red_ratio_threshold: float = 0.20
     vest_orange_ratio_threshold: float = 0.20
     vest_white_ratio_threshold: float = 0.18
+    vest_non_white_min_ratio: float = 0.10
+    vest_non_white_min_pixels: int = 24
     white_s_max: int = 55
     white_v_min: int = 170
     red_h_low_max: int = 18
@@ -34,6 +36,12 @@ class AppConfig:
     vest_orange_h_max: int = 28
     vest_orange_s_min: int = 80
     vest_orange_v_min: int = 80
+    torso_roi_min_width: int = 32
+    torso_roi_min_height: int = 48
+    torso_roi_min_area: int = 1400
+    torso_fallback_x_margin_ratio: float = 0.16
+    torso_fallback_top_ratio: float = 0.18
+    torso_fallback_bottom_ratio: float = 0.76
     device: str = ""
     codec: str = "mp4v"
     font_path: str = ""
@@ -108,7 +116,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--vest-white-ratio-threshold",
         type=float,
         default=0.18,
-        help="Minimum white pixel ratio required to classify a vest as white.",
+        help="Reference threshold for white reflective-strip statistics. Not used as a final vest color class.",
+    )
+    parser.add_argument(
+        "--vest-non-white-min-ratio",
+        type=float,
+        default=0.10,
+        help="Minimum non-white area ratio required before making a final vest-color decision.",
+    )
+    parser.add_argument(
+        "--vest-non-white-min-pixels",
+        type=int,
+        default=24,
+        help="Minimum non-white pixel count required before making a final vest-color decision.",
     )
     parser.add_argument(
         "--white-ratio-threshold",
@@ -175,6 +195,42 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=80,
         help="Minimum HSV value for orange vest pixels.",
+    )
+    parser.add_argument(
+        "--torso-roi-min-width",
+        type=int,
+        default=32,
+        help="Minimum torso ROI width. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--torso-roi-min-height",
+        type=int,
+        default=48,
+        help="Minimum torso ROI height. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--torso-roi-min-area",
+        type=int,
+        default=1400,
+        help="Minimum torso ROI area. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--torso-fallback-x-margin-ratio",
+        type=float,
+        default=0.16,
+        help="Horizontal margin ratio used by the conservative person-box fallback torso ROI.",
+    )
+    parser.add_argument(
+        "--torso-fallback-top-ratio",
+        type=float,
+        default=0.18,
+        help="Top ratio used by the conservative person-box fallback torso ROI.",
+    )
+    parser.add_argument(
+        "--torso-fallback-bottom-ratio",
+        type=float,
+        default=0.76,
+        help="Bottom ratio used by the conservative person-box fallback torso ROI.",
     )
     parser.add_argument("--device", default="", help="Ultralytics device. Empty uses the default device.")
     parser.add_argument("--codec", default="mp4v", help="Preferred output codec. Falls back to XVID if needed.")

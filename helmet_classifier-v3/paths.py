@@ -9,7 +9,8 @@ def _output_root() -> Path:
 
 
 def default_output_path(source: Path) -> Path:
-    return _output_root() / "videos" / f"{source.stem}.mp4"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return _output_root() / "videos" / f"{source.stem}_{timestamp}.mp4"
 
 
 def default_debug_dir(source: Path) -> Path:

@@ -208,6 +208,7 @@ def process_video(config: AppConfig) -> Path:
                         person_kpt_conf,
                         frame.shape,
                         config.torso_keypoint_conf,
+                        config,
                     )
 
                     helmet_result = _empty_helmet_result()
