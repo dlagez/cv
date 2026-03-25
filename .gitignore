@@ -30,3 +30,4 @@ runs/
 data/videos/
 *.pt
 data/
+/helmet_classifier-v3/output
