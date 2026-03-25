@@ -62,6 +62,8 @@ class HelmetColorDebugData:
 class VestColorDebugData:
     roi_bgr: np.ndarray
     analysis_bgr: np.ndarray
+    yellow_mask: np.ndarray
+    green_mask: np.ndarray
     yellow_green_mask: np.ndarray
     red_mask: np.ndarray
     orange_mask: np.ndarray
@@ -71,6 +73,8 @@ class VestColorDebugData:
     analysis_x2: int
     analysis_y2: int
     analysis_area: int
+    yellow_pixels: int
+    green_pixels: int
     yellow_green_pixels: int
     red_pixels: int
     orange_pixels: int
@@ -83,6 +87,8 @@ class VestColorDebugData:
         return cls(
             roi_bgr=empty_roi,
             analysis_bgr=empty_roi.copy(),
+            yellow_mask=empty_mask,
+            green_mask=empty_mask.copy(),
             yellow_green_mask=empty_mask,
             red_mask=empty_mask.copy(),
             orange_mask=empty_mask.copy(),
@@ -92,6 +98,8 @@ class VestColorDebugData:
             analysis_x2=0,
             analysis_y2=0,
             analysis_area=0,
+            yellow_pixels=0,
+            green_pixels=0,
             yellow_green_pixels=0,
             red_pixels=0,
             orange_pixels=0,
@@ -110,6 +118,8 @@ class HelmetColorResult:
 @dataclass(slots=True)
 class VestColorResult:
     vest_color: str
+    yellow_ratio: float
+    green_ratio: float
     yellow_green_ratio: float
     red_ratio: float
     orange_ratio: float

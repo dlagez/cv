@@ -14,6 +14,7 @@ from .constants import (
     MANAGER_VEST_COLOR,
     RIGHT_HIP,
     RIGHT_SHOULDER,
+    WORKER_VEST_COLORS,
 )
 from .schemas import (
     Box,
@@ -51,7 +52,7 @@ def _clamp_torso_box(
     box_h = max(box_y2 - box_y1, 1.0)
     left_limit = box_x1 + box_w * 0.02
     right_limit = box_x2 - box_w * 0.02
-    top_limit = box_y1 + box_h * 0.05
+    top_limit = box_y1
     bottom_limit = box_y2 - box_h * 0.06
     roi_x1 = max(0, int(round(max(box[0], left_limit))))
     roi_y1 = max(0, int(round(max(box[1], top_limit))))
@@ -69,9 +70,9 @@ def _torso_roi_size(box: Box) -> tuple[int, int, int]:
 def _torso_roi_meets_min_constraints(box: Box, config: AppConfig) -> bool:
     width, height, area = _torso_roi_size(box)
     return (
-        width >= config.torso_roi_min_width
-        and height >= config.torso_roi_min_height
-        and area >= config.torso_roi_min_area
+        width >= config.vest_min_width
+        and height >= config.vest_min_height
+        and area >= config.vest_min_area
     )
 
 
@@ -86,14 +87,14 @@ def _expand_small_torso_roi(
     box_h = max(box_y2 - box_y1, 1.0)
     width, height, _ = _torso_roi_size(box)
     center_x = (box[0] + box[2]) / 2.0
-    center_y = (box[1] + box[3]) / 2.0
-    target_w = max(float(width), float(config.torso_roi_min_width), box_w * 0.26)
-    target_h = max(float(height), float(config.torso_roi_min_height), box_h * 0.30)
+    target_w = max(float(width), float(config.vest_min_width), box_w * 0.26)
+    target_h = max(float(height), float(config.vest_min_height), box_h * 0.30)
+    extra_h = max(0.0, target_h - float(height))
     expanded = (
         center_x - target_w * 0.50,
-        center_y - target_h * 0.42,
+        box[1] - extra_h * 0.55,
         center_x + target_w * 0.50,
-        center_y + target_h * 0.58,
+        box[3] + extra_h * 0.45,
     )
     return _clamp_torso_box(expanded, person_box, frame_shape)
 
@@ -107,10 +108,10 @@ def _build_fallback_torso_roi(
     box_w = max(box_x2 - box_x1, 1.0)
     box_h = max(box_y2 - box_y1, 1.0)
     fallback = (
-        box_x1 + box_w * config.torso_fallback_x_margin_ratio,
-        box_y1 + box_h * config.torso_fallback_top_ratio,
-        box_x2 - box_w * config.torso_fallback_x_margin_ratio,
-        box_y1 + box_h * config.torso_fallback_bottom_ratio,
+        box_x1 + box_w * config.vest_person_fallback_x_margin_ratio,
+        box_y1 + box_h * config.vest_person_fallback_top_ratio,
+        box_x2 - box_w * config.vest_person_fallback_x_margin_ratio,
+        box_y1 + box_h * config.vest_person_fallback_bottom_ratio,
     )
     clamped = _clamp_torso_box(fallback, person_box, frame_shape)
     if not _torso_roi_meets_min_constraints(clamped, config):
@@ -224,11 +225,11 @@ def estimate_torso_roi(
 
     shoulder_span = 0.0
     if shoulder_points.shape[0] == 2:
-        shoulder_span = float(np.linalg.norm(shoulder_points[0] - shoulder_points[1]))
+        shoulder_span = float(abs(shoulder_points[1, 0] - shoulder_points[0, 0]))
 
     hip_span = 0.0
     if hip_points.shape[0] == 2:
-        hip_span = float(np.linalg.norm(hip_points[0] - hip_points[1]))
+        hip_span = float(abs(hip_points[1, 0] - hip_points[0, 0]))
 
     if shoulder_points.shape[0] < 2:
         fallback_box = _build_fallback_torso_roi(person_box, frame_shape, config)
@@ -250,33 +251,37 @@ def estimate_torso_roi(
 
     shoulder_center = np.mean(shoulder_points, axis=0)
     shoulder_center_x = float(shoulder_center[0])
-    shoulder_center_y = float(shoulder_center[1])
+    shoulder_y = float(np.min(shoulder_points[:, 1]))
+    top_offset = box_h * config.vest_top_offset_ratio
+    if top_offset >= 0.0:
+        top_offset = max(2.0, top_offset)
+    else:
+        top_offset = min(-2.0, top_offset)
+    bottom_offset = max(2.0, box_h * config.vest_bottom_offset_ratio)
+    roi_y1 = shoulder_y + top_offset
+    roi_w = max(
+        shoulder_span * config.vest_shoulder_width_expand_ratio,
+        box_w * 0.22,
+        24.0,
+    )
 
     if hip_points.shape[0] == 2:
         roi_source = "torso-4pt"
-        hip_center = np.mean(hip_points, axis=0)
-        hip_center_y = float(hip_center[1])
-        center_x = float(np.mean(np.concatenate((shoulder_points[:, 0], hip_points[:, 0]))))
-        body_width = max(shoulder_span, hip_span, box_w * 0.30, 28.0)
-        roi_w = body_width * 0.92
-        torso_height = max(hip_center_y - shoulder_center_y, box_h * 0.22, 26.0)
-        roi_y1 = shoulder_center_y + max(2.0, torso_height * 0.04)
-        roi_y2 = hip_center_y + max(2.0, torso_height * 0.10)
-        roi_y2 = min(roi_y2, box_y1 + box_h * 0.78)
+        hip_anchor_y = float(np.max(hip_points[:, 1]))
+        roi_y2 = hip_anchor_y + bottom_offset
+    elif hip_points.shape[0] == 1:
+        roi_source = "torso-3pt"
+        hip_anchor_y = float(hip_points[0, 1])
+        roi_y2 = hip_anchor_y + bottom_offset
     else:
         roi_source = "torso-shoulder-box"
-        center_x = shoulder_center_x
-        body_width = max(shoulder_span, box_w * 0.32, 28.0)
-        roi_w = body_width * 0.88
-        roi_y1 = shoulder_center_y + max(2.0, box_h * 0.01, shoulder_span * 0.04)
-        roi_y2 = max(box_y1 + box_h * 0.68, roi_y1 + max(28.0, shoulder_span * 1.05, box_h * 0.24))
-        roi_y2 = min(roi_y2, box_y1 + box_h * 0.76)
+        roi_y2 = roi_y1 + max(28.0, shoulder_span * 1.05, box_h * 0.26)
 
     torso_box = _clamp_torso_box(
         (
-            center_x - roi_w * 0.50,
+            shoulder_center_x - roi_w * 0.50,
             roi_y1,
-            center_x + roi_w * 0.50,
+            shoulder_center_x + roi_w * 0.50,
             roi_y2,
         ),
         person_box,
@@ -430,6 +435,8 @@ def classify_vest_color(
     if roi_bgr.size == 0:
         return VestColorResult(
             vest_color="unknown",
+            yellow_ratio=0.0,
+            green_ratio=0.0,
             yellow_green_ratio=0.0,
             red_ratio=0.0,
             orange_ratio=0.0,
@@ -448,10 +455,15 @@ def classify_vest_color(
     blurred = cv2.GaussianBlur(core, (5, 5), 0)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 
-    yellow_green_mask_core = cv2.inRange(
+    yellow_mask_core = cv2.inRange(
         hsv,
-        (config.vest_yellow_green_h_min, config.vest_yellow_green_s_min, config.vest_yellow_green_v_min),
-        (config.vest_yellow_green_h_max, 255, 255),
+        (config.vest_yellow_h_min, config.vest_yellow_s_min, config.vest_yellow_v_min),
+        (config.vest_yellow_h_max, 255, 255),
+    )
+    green_mask_core = cv2.inRange(
+        hsv,
+        (config.vest_green_h_min, config.vest_green_s_min, config.vest_green_v_min),
+        (config.vest_green_h_max, 255, 255),
     )
     red_mask_low = cv2.inRange(
         hsv,
@@ -472,16 +484,21 @@ def classify_vest_color(
     white_mask_core = cv2.inRange(hsv, (0, 0, config.white_v_min), (179, config.white_s_max, 255))
 
     kernel = np.ones((3, 3), dtype=np.uint8)
-    yellow_green_mask_core = cv2.morphologyEx(yellow_green_mask_core, cv2.MORPH_OPEN, kernel)
+    yellow_mask_core = cv2.morphologyEx(yellow_mask_core, cv2.MORPH_OPEN, kernel)
+    green_mask_core = cv2.morphologyEx(green_mask_core, cv2.MORPH_OPEN, kernel)
     red_mask_core = cv2.morphologyEx(red_mask_core, cv2.MORPH_OPEN, kernel)
     orange_mask_core = cv2.morphologyEx(orange_mask_core, cv2.MORPH_OPEN, kernel)
     white_mask_core = cv2.morphologyEx(white_mask_core, cv2.MORPH_OPEN, kernel)
 
     area = float(max(1, core.shape[0] * core.shape[1]))
     non_white_mask_core = cv2.bitwise_not(white_mask_core)
-    yellow_green_mask_core = cv2.bitwise_and(yellow_green_mask_core, non_white_mask_core)
+    yellow_mask_core = cv2.bitwise_and(yellow_mask_core, non_white_mask_core)
+    green_mask_core = cv2.bitwise_and(green_mask_core, non_white_mask_core)
     red_mask_core = cv2.bitwise_and(red_mask_core, non_white_mask_core)
     orange_mask_core = cv2.bitwise_and(orange_mask_core, non_white_mask_core)
+    yellow_pixels = int(np.count_nonzero(yellow_mask_core))
+    green_pixels = int(np.count_nonzero(green_mask_core))
+    yellow_green_mask_core = cv2.bitwise_or(yellow_mask_core, green_mask_core)
     yellow_green_pixels = int(np.count_nonzero(yellow_green_mask_core))
     red_pixels = int(np.count_nonzero(red_mask_core))
     orange_pixels = int(np.count_nonzero(orange_mask_core))
@@ -489,6 +506,8 @@ def classify_vest_color(
     non_white_pixels = max(int(area) - white_pixels, 0)
 
     effective_area = float(max(non_white_pixels, 1))
+    yellow_ratio = float(yellow_pixels / effective_area)
+    green_ratio = float(green_pixels / effective_area)
     yellow_green_ratio = float(yellow_green_pixels / effective_area)
     red_ratio = float(red_pixels / effective_area)
     orange_ratio = float(orange_pixels / effective_area)
@@ -500,19 +519,28 @@ def classify_vest_color(
     ):
         vest_color = "unknown"
     else:
-        candidates: list[tuple[str, float]] = []
-        if yellow_green_ratio >= config.vest_yellow_green_ratio_threshold:
-            candidates.append(("yellow_green_fluorescent", yellow_green_ratio))
-        if red_ratio >= config.vest_red_ratio_threshold:
-            candidates.append(("red", red_ratio))
-        if orange_ratio >= config.vest_orange_ratio_threshold:
-            candidates.append(("orange", orange_ratio))
-        vest_color = max(candidates, key=lambda item: item[1])[0] if candidates else "other"
+        has_yellow_green = (
+            yellow_ratio >= config.vest_yellow_ratio_threshold
+            or green_ratio >= config.vest_green_ratio_threshold
+            or yellow_green_ratio >= config.vest_yellow_green_ratio_threshold
+        )
+        if has_yellow_green:
+            vest_color = "yellow_green_fluorescent"
+        elif red_ratio >= config.vest_red_ratio_threshold:
+            vest_color = "red"
+        elif orange_ratio >= config.vest_orange_ratio_threshold:
+            vest_color = "orange"
+        else:
+            vest_color = "other"
 
+    yellow_mask = np.zeros((height, width), dtype=np.uint8)
+    green_mask = np.zeros((height, width), dtype=np.uint8)
     yellow_green_mask = np.zeros((height, width), dtype=np.uint8)
     red_mask = np.zeros((height, width), dtype=np.uint8)
     orange_mask = np.zeros((height, width), dtype=np.uint8)
     white_mask = np.zeros((height, width), dtype=np.uint8)
+    yellow_mask[analysis_y1:analysis_y2, analysis_x1:analysis_x2] = yellow_mask_core
+    green_mask[analysis_y1:analysis_y2, analysis_x1:analysis_x2] = green_mask_core
     yellow_green_mask[analysis_y1:analysis_y2, analysis_x1:analysis_x2] = yellow_green_mask_core
     red_mask[analysis_y1:analysis_y2, analysis_x1:analysis_x2] = red_mask_core
     orange_mask[analysis_y1:analysis_y2, analysis_x1:analysis_x2] = orange_mask_core
@@ -520,6 +548,8 @@ def classify_vest_color(
 
     return VestColorResult(
         vest_color=vest_color,
+        yellow_ratio=yellow_ratio,
+        green_ratio=green_ratio,
         yellow_green_ratio=yellow_green_ratio,
         red_ratio=red_ratio,
         orange_ratio=orange_ratio,
@@ -527,6 +557,8 @@ def classify_vest_color(
         debug=VestColorDebugData(
             roi_bgr=roi_bgr.copy(),
             analysis_bgr=core.copy(),
+            yellow_mask=yellow_mask,
+            green_mask=green_mask,
             yellow_green_mask=yellow_green_mask,
             red_mask=red_mask,
             orange_mask=orange_mask,
@@ -536,6 +568,8 @@ def classify_vest_color(
             analysis_x2=analysis_x2,
             analysis_y2=analysis_y2,
             analysis_area=int(area),
+            yellow_pixels=yellow_pixels,
+            green_pixels=green_pixels,
             yellow_green_pixels=yellow_green_pixels,
             red_pixels=red_pixels,
             orange_pixels=orange_pixels,

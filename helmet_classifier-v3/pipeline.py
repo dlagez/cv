@@ -9,11 +9,11 @@ from ultralytics import YOLO
 from .analysis import (
     classify_helmet_color,
     classify_vest_color,
-    decide_person_label,
     estimate_head_roi,
     estimate_torso_roi,
 )
 from .config import AppConfig
+from .decision_logic import decide_person_label
 from .debug_output import ensure_debug_layout, save_debug_panel, should_capture_debug
 from .paths import allocate_run_dir, default_debug_dir, default_output_path
 from .render import build_overlay, draw_detection_boxes, load_label_font, render_text_overlays
@@ -63,6 +63,8 @@ def _empty_helmet_result() -> HelmetColorResult:
 def _empty_vest_result() -> VestColorResult:
     return VestColorResult(
         vest_color="unknown",
+        yellow_ratio=0.0,
+        green_ratio=0.0,
         yellow_green_ratio=0.0,
         red_ratio=0.0,
         orange_ratio=0.0,
@@ -143,9 +145,13 @@ def process_video(config: AppConfig) -> Path:
                 "white_ratio",
                 "red_ratio",
                 "vest_yellow_green_pixels",
+                "vest_yellow_pixels",
+                "vest_green_pixels",
                 "vest_red_pixels",
                 "vest_orange_pixels",
                 "vest_white_pixels",
+                "vest_yellow_ratio",
+                "vest_green_ratio",
                 "vest_yellow_green_ratio",
                 "vest_red_ratio",
                 "vest_orange_ratio",
@@ -306,9 +312,13 @@ def process_video(config: AppConfig) -> Path:
                             "white_ratio": f"{helmet_result.white_ratio:.4f}",
                             "red_ratio": f"{helmet_result.red_ratio:.4f}",
                             "vest_yellow_green_pixels": vest_result.debug.yellow_green_pixels,
+                            "vest_yellow_pixels": vest_result.debug.yellow_pixels,
+                            "vest_green_pixels": vest_result.debug.green_pixels,
                             "vest_red_pixels": vest_result.debug.red_pixels,
                             "vest_orange_pixels": vest_result.debug.orange_pixels,
                             "vest_white_pixels": vest_result.debug.white_pixels,
+                            "vest_yellow_ratio": f"{vest_result.yellow_ratio:.4f}",
+                            "vest_green_ratio": f"{vest_result.green_ratio:.4f}",
                             "vest_yellow_green_ratio": f"{vest_result.yellow_green_ratio:.4f}",
                             "vest_red_ratio": f"{vest_result.red_ratio:.4f}",
                             "vest_orange_ratio": f"{vest_result.orange_ratio:.4f}",

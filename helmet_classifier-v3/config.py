@@ -16,7 +16,9 @@ class AppConfig:
     torso_keypoint_conf: float = 0.35
     helmet_white_ratio_threshold: float = 0.18
     helmet_red_ratio_threshold: float = 0.15
-    vest_yellow_green_ratio_threshold: float = 0.28
+    vest_yellow_green_ratio_threshold: float = 0.08
+    vest_yellow_ratio_threshold: float = 0.03
+    vest_green_ratio_threshold: float = 0.03
     vest_red_ratio_threshold: float = 0.20
     vest_orange_ratio_threshold: float = 0.20
     vest_white_ratio_threshold: float = 0.18
@@ -28,20 +30,27 @@ class AppConfig:
     red_h_high_min: int = 145
     red_s_min: int = 75
     red_v_min: int = 60
-    vest_yellow_green_h_min: int = 28
-    vest_yellow_green_h_max: int = 95
-    vest_yellow_green_s_min: int = 70
-    vest_yellow_green_v_min: int = 110
+    vest_yellow_h_min: int = 26
+    vest_yellow_h_max: int = 52
+    vest_yellow_s_min: int = 20
+    vest_yellow_v_min: int = 60
+    vest_green_h_min: int = 48
+    vest_green_h_max: int = 105
+    vest_green_s_min: int = 20
+    vest_green_v_min: int = 50
     vest_orange_h_min: int = 8
     vest_orange_h_max: int = 28
-    vest_orange_s_min: int = 80
-    vest_orange_v_min: int = 80
-    torso_roi_min_width: int = 32
-    torso_roi_min_height: int = 48
-    torso_roi_min_area: int = 1400
-    torso_fallback_x_margin_ratio: float = 0.16
-    torso_fallback_top_ratio: float = 0.18
-    torso_fallback_bottom_ratio: float = 0.76
+    vest_orange_s_min: int = 55
+    vest_orange_v_min: int = 65
+    vest_top_offset_ratio: float = -0.05
+    vest_bottom_offset_ratio: float = 0.05
+    vest_shoulder_width_expand_ratio: float = 1.20
+    vest_min_width: int = 32
+    vest_min_height: int = 48
+    vest_min_area: int = 1400
+    vest_person_fallback_x_margin_ratio: float = 0.16
+    vest_person_fallback_top_ratio: float = 0.18
+    vest_person_fallback_bottom_ratio: float = 0.76
     device: str = ""
     codec: str = "mp4v"
     font_path: str = ""
@@ -97,8 +106,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vest-yellow-green-ratio-threshold",
         type=float,
-        default=0.28,
-        help="Minimum yellow-green pixel ratio required to classify a vest as fluorescent yellow-green.",
+        default=0.08,
+        help="Minimum combined yellow-or-green ratio required to classify a vest as fluorescent yellow-green.",
+    )
+    parser.add_argument(
+        "--vest-yellow-ratio-threshold",
+        type=float,
+        default=0.03,
+        help="Minimum yellow pixel ratio required to classify a vest as fluorescent yellow-green.",
+    )
+    parser.add_argument(
+        "--vest-green-ratio-threshold",
+        type=float,
+        default=0.03,
+        help="Minimum green pixel ratio required to classify a vest as fluorescent yellow-green.",
     )
     parser.add_argument(
         "--vest-red-ratio-threshold",
@@ -149,28 +170,52 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--red-s-min", type=int, default=75, help="Minimum HSV saturation for red.")
     parser.add_argument("--red-v-min", type=int, default=60, help="Minimum HSV value for red.")
     parser.add_argument(
-        "--vest-yellow-green-h-min",
+        "--vest-yellow-h-min",
         type=int,
-        default=28,
-        help="Lower hue bound of the fluorescent yellow-green vest range.",
+        default=26,
+        help="Lower hue bound of the yellow vest range.",
     )
     parser.add_argument(
-        "--vest-yellow-green-h-max",
+        "--vest-yellow-h-max",
         type=int,
-        default=95,
-        help="Upper hue bound of the fluorescent yellow-green vest range.",
+        default=52,
+        help="Upper hue bound of the yellow vest range.",
     )
     parser.add_argument(
-        "--vest-yellow-green-s-min",
+        "--vest-yellow-s-min",
         type=int,
-        default=70,
-        help="Minimum HSV saturation for fluorescent yellow-green vest pixels.",
+        default=20,
+        help="Minimum HSV saturation for yellow vest pixels.",
     )
     parser.add_argument(
-        "--vest-yellow-green-v-min",
+        "--vest-yellow-v-min",
         type=int,
-        default=110,
-        help="Minimum HSV value for fluorescent yellow-green vest pixels.",
+        default=60,
+        help="Minimum HSV value for yellow vest pixels.",
+    )
+    parser.add_argument(
+        "--vest-green-h-min",
+        type=int,
+        default=48,
+        help="Lower hue bound of the green vest range.",
+    )
+    parser.add_argument(
+        "--vest-green-h-max",
+        type=int,
+        default=105,
+        help="Upper hue bound of the green vest range.",
+    )
+    parser.add_argument(
+        "--vest-green-s-min",
+        type=int,
+        default=20,
+        help="Minimum HSV saturation for green vest pixels.",
+    )
+    parser.add_argument(
+        "--vest-green-v-min",
+        type=int,
+        default=50,
+        help="Minimum HSV value for green vest pixels.",
     )
     parser.add_argument(
         "--vest-orange-h-min",
@@ -187,50 +232,110 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vest-orange-s-min",
         type=int,
-        default=80,
+        default=55,
         help="Minimum HSV saturation for orange vest pixels.",
     )
     parser.add_argument(
         "--vest-orange-v-min",
         type=int,
-        default=80,
+        default=65,
         help="Minimum HSV value for orange vest pixels.",
     )
     parser.add_argument(
-        "--torso-roi-min-width",
+        "--vest-top-offset-ratio",
+        type=float,
+        default=-0.05,
+        help="Vertical offset ratio from the shoulder line to the vest ROI top edge. Negative values move the ROI above the shoulder line.",
+    )
+    parser.add_argument(
+        "--vest-bottom-offset-ratio",
+        type=float,
+        default=0.05,
+        help="Downward extension ratio from the hip line to the vest ROI bottom edge.",
+    )
+    parser.add_argument(
+        "--vest-shoulder-width-expand-ratio",
+        type=float,
+        default=1.20,
+        help="Total vest ROI width as a multiple of the shoulder span.",
+    )
+    parser.add_argument(
+        "--vest-min-width",
         type=int,
         default=32,
-        help="Minimum torso ROI width. Smaller ROIs are expanded or fallback-adjusted.",
+        help="Minimum vest ROI width. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--vest-min-height",
+        type=int,
+        default=48,
+        help="Minimum vest ROI height. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--vest-min-area",
+        type=int,
+        default=1400,
+        help="Minimum vest ROI area. Smaller ROIs are expanded or fallback-adjusted.",
+    )
+    parser.add_argument(
+        "--vest-person-fallback-x-margin-ratio",
+        type=float,
+        default=0.16,
+        help="Horizontal margin ratio used by the conservative person-box fallback vest ROI.",
+    )
+    parser.add_argument(
+        "--vest-person-fallback-top-ratio",
+        type=float,
+        default=0.18,
+        help="Top ratio used by the conservative person-box fallback vest ROI.",
+    )
+    parser.add_argument(
+        "--vest-person-fallback-bottom-ratio",
+        type=float,
+        default=0.76,
+        help="Bottom ratio used by the conservative person-box fallback vest ROI.",
+    )
+    parser.add_argument(
+        "--torso-roi-min-width",
+        dest="vest_min_width",
+        type=int,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--torso-roi-min-height",
+        dest="vest_min_height",
         type=int,
-        default=48,
-        help="Minimum torso ROI height. Smaller ROIs are expanded or fallback-adjusted.",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--torso-roi-min-area",
+        dest="vest_min_area",
         type=int,
-        default=1400,
-        help="Minimum torso ROI area. Smaller ROIs are expanded or fallback-adjusted.",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--torso-fallback-x-margin-ratio",
+        dest="vest_person_fallback_x_margin_ratio",
         type=float,
-        default=0.16,
-        help="Horizontal margin ratio used by the conservative person-box fallback torso ROI.",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--torso-fallback-top-ratio",
+        dest="vest_person_fallback_top_ratio",
         type=float,
-        default=0.18,
-        help="Top ratio used by the conservative person-box fallback torso ROI.",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--torso-fallback-bottom-ratio",
+        dest="vest_person_fallback_bottom_ratio",
         type=float,
-        default=0.76,
-        help="Bottom ratio used by the conservative person-box fallback torso ROI.",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--device", default="", help="Ultralytics device. Empty uses the default device.")
     parser.add_argument("--codec", default="mp4v", help="Preferred output codec. Falls back to XVID if needed.")

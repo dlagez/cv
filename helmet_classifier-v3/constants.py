@@ -10,6 +10,7 @@ RIGHT_HIP = 12
 
 MANAGER_HELMET_COLORS = frozenset({"red", "white"})
 MANAGER_VEST_COLOR = "yellow_green_fluorescent"
+WORKER_VEST_COLORS = frozenset({"red", "orange"})
 
 DISPLAY_LABELS = {
     "manager": "管理人员",

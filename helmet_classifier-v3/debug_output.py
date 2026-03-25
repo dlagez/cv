@@ -61,6 +61,10 @@ def label_panel(panel: np.ndarray, title: str) -> np.ndarray:
     return panel
 
 
+def blank_panel(title: str, target_w: int = 320, target_h: int = 240) -> np.ndarray:
+    return label_panel(np.full((target_h, target_w, 3), 25, dtype=np.uint8), title)
+
+
 def save_debug_panel(
     panels_dir: Path,
     frame: np.ndarray,
@@ -105,25 +109,40 @@ def save_debug_panel(
         (
             label_panel(fit_panel_image(person_crop), "person_crop"),
             label_panel(fit_panel_image(helmet_debug.roi_bgr), "helmet_roi"),
+            label_panel(fit_panel_image(helmet_debug.analysis_bgr), "helmet_analysis"),
             label_panel(fit_panel_image(vest_debug.roi_bgr), "torso_roi"),
             label_panel(fit_panel_image(vest_debug.analysis_bgr), "vest_analysis"),
+            blank_panel(""),
         )
     )
-    bottom_row = np.hstack(
+    helmet_mask_row = np.hstack(
         (
-            label_panel(fit_panel_image(cv2.cvtColor(vest_debug.yellow_green_mask, cv2.COLOR_GRAY2BGR)), "yellow_green_mask"),
+            label_panel(fit_panel_image(cv2.cvtColor(helmet_debug.white_mask, cv2.COLOR_GRAY2BGR)), "helmet_white_mask"),
+            label_panel(fit_panel_image(cv2.cvtColor(helmet_debug.red_mask, cv2.COLOR_GRAY2BGR)), "helmet_red_mask"),
+            blank_panel(""),
+            blank_panel(""),
+            blank_panel(""),
+            blank_panel(""),
+        )
+    )
+    vest_mask_row = np.hstack(
+        (
+            label_panel(fit_panel_image(cv2.cvtColor(vest_debug.yellow_green_mask, cv2.COLOR_GRAY2BGR)), "vest_yellow_green_mask"),
+            label_panel(fit_panel_image(cv2.cvtColor(vest_debug.yellow_mask, cv2.COLOR_GRAY2BGR)), "yellow_mask"),
+            label_panel(fit_panel_image(cv2.cvtColor(vest_debug.green_mask, cv2.COLOR_GRAY2BGR)), "green_mask"),
             label_panel(fit_panel_image(cv2.cvtColor(vest_debug.red_mask, cv2.COLOR_GRAY2BGR)), "red_mask"),
             label_panel(fit_panel_image(cv2.cvtColor(vest_debug.orange_mask, cv2.COLOR_GRAY2BGR)), "orange_mask"),
             label_panel(fit_panel_image(cv2.cvtColor(vest_debug.white_mask, cv2.COLOR_GRAY2BGR)), "white_mask"),
         )
     )
-    footer = np.full((170, top_row.shape[1], 3), 18, dtype=np.uint8)
+    footer = np.full((190, top_row.shape[1], 3), 18, dtype=np.uint8)
     lines = [
         f"frame={frame_index} det={detection_index} label={record['label']} decision={record['final_decision_rule']}",
         f"head_source={record['roi_source']} torso_source={record['torso_roi_source']} person_conf={record['person_confidence']}",
         f"head_pts={record['head_point_count']} shoulder_pts={record['shoulder_point_count']} hip_pts={record['hip_point_count']}",
         f"helmet={record['helmet_color']} W={record['white_ratio']} R={record['red_ratio']} torso_box=({record['torso_x1']},{record['torso_y1']},{record['torso_x2']},{record['torso_y2']})",
-        f"vest={record['vest_color']} YG={record['vest_yellow_green_ratio']} R={record['vest_red_ratio']} O={record['vest_orange_ratio']} W={record['vest_white_ratio']}",
+        f"vest={record['vest_color']} Y={record['vest_yellow_ratio']} G={record['vest_green_ratio']} YG={record['vest_yellow_green_ratio']}",
+        f"vest_non_white R={record['vest_red_ratio']} O={record['vest_orange_ratio']} W={record['vest_white_ratio']}",
         f"helmet_box=({record['helmet_x1']},{record['helmet_y1']},{record['helmet_x2']},{record['helmet_y2']}) vest_analysis=({record['vest_analysis_x1']},{record['vest_analysis_y1']},{record['vest_analysis_x2']},{record['vest_analysis_y2']})",
     ]
     for idx, line in enumerate(lines):
@@ -138,7 +157,7 @@ def save_debug_panel(
             cv2.LINE_AA,
         )
 
-    panel = np.vstack((top_row, bottom_row, footer))
+    panel = np.vstack((top_row, helmet_mask_row, vest_mask_row, footer))
     panel_path = panels_dir / f"frame_{frame_index:06d}_det_{detection_index:02d}.jpg"
     cv2.imwrite(str(panel_path), panel)
 
