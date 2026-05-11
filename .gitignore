@@ -31,3 +31,7 @@ data/videos/
 *.pt
 data/
 /helmet_classifier-v3/output
+
+# Cursor one-off SSH helper output (local only)
+.cursor-jms-sshcopy.sh
+_ssh_copy_id_result.txt
